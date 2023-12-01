@@ -1,8 +1,6 @@
 import pylsl
 import pandas as pd
 import numpy as np
-import time
-import matplotlib.pyplot as plt
 
 def conectar_stream_lsl(nombre_stream):
     streams = pylsl.resolve_stream('name', nombre_stream)
@@ -15,34 +13,30 @@ def calcular_cognitive_engagement(df_real_time):
     df_real_time['CEng'] = betas / (alphas + thetas)
     return df_real_time
 
-def procesar_datos_en_tiempo_real(stream_inlet, tiempo_de_procesamiento=60):
-    tiempo_final = time.time() + tiempo_de_procesamiento
+def enviar_datos_lsl(stream_outlet, dato):
+    stream_outlet.push_sample([dato])
+
+def procesar_datos_eternamente(stream_inlet):
+    # Crear un outlet para enviar datos de Cognitive Engagement
+    info = pylsl.StreamInfo('CEngStream', 'Engagement', 1, pylsl.IRREGULAR_RATE, 'float32', 'ceng12345')
+    stream_outlet = pylsl.StreamOutlet(info)
+
     columnas = ['Canal' + str(i) for i in range(1, 41)]
     df_real_time = pd.DataFrame(columns=columnas)
 
-    plt.ion()  # Activa el modo interactivo de Matplotlib
-    fig, ax = plt.subplots()
-    ax.set_xlabel('Muestras')
-    ax.set_ylabel('Cognitive Engagement')
-    ax.set_title('Cognitive Engagement en Tiempo Real')
-
-    while time.time() < tiempo_final:
+    while True:
         muestras, timestamp = stream_inlet.pull_sample()
         if muestras:
             df_muestra = pd.DataFrame([muestras], columns=columnas)
             df_real_time = pd.concat([df_real_time, df_muestra], ignore_index=True)
             df_real_time = calcular_cognitive_engagement(df_real_time)
 
-            # Actualizar el gráfico
-            ax.clear()
-            ax.plot(df_real_time['CEng'])
-            plt.pause(0.1)  # Pausa breve para actualizar el gráfico
-
-    plt.ioff()  # Desactiva el modo interactivo
-    return df_real_time
+            # Enviar la última predicción de Cognitive Engagement
+            ultimo_ceng = df_real_time['CEng'].iloc[-1]
+            enviar_datos_lsl(stream_outlet, ultimo_ceng)
 
 # Conectar al stream LSL
 stream_inlet = conectar_stream_lsl("AURA_Power_Power")
 
-# Procesar los datos en tiempo real durante 60 segundos
-df_datos_en_tiempo_real = procesar_datos_en_tiempo_real(stream_inlet, 60)
+# Procesar los datos continuamente
+procesar_datos_eternamente(stream_inlet)
